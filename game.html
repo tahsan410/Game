@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TF OVI</title>
+    <style>
+        body { margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; background: #001f3f; font-family: 'Segoe UI', sans-serif; }
+        #container { position: relative; border: 8px solid #fff; border-radius: 20px; box-shadow: 0 0 50px rgba(0,0,0,0.5); overflow: hidden; }
+        canvas { background: linear-gradient(to bottom, #4facfe 0%, #00f2fe 100%); display: block; cursor: crosshair; }
+        
+        .ui { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none; width: 100%; }
+        .msg { font-size: 50px; font-weight: 900; text-transform: uppercase; display: none; text-shadow: 4px 4px 0px #000; z-index: 10; }
+        .success { color: #00ff88; }
+        .fail { color: #ff4b2b; position: absolute; top: 40px; left: 50%; transform: translateX(-50%); font-size: 35px; width: 100%;}
+        
+        #retryBtn { 
+            margin-top: 20px; padding: 15px 30px; font-size: 20px; font-weight: bold; 
+            background: #fff; color: #333; border: none; border-radius: 50px; 
+            cursor: pointer; pointer-events: auto; display: none; transition: 0.3s;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        #retryBtn:hover { background: #00ff88; transform: scale(1.1); }
+        .game-title { position: absolute; top: 20px; left: 20px; color: white; font-size: 18px; font-weight: bold; opacity: 0.7; }
+    </style>
+</head>
+<body>
+
+<div id="container">
+    <div class="game-title">TFO</div>
+    <div class="ui">
+        <div id="msgSuccess" class="msg success">MOJNUR POLAR MATHA LAGSE!<br>SHABBAS!!</div>
+        <button id="retryBtn" onclick="restartGame()">PLAY AGAIN</button>
+        <div id="msgFail" class="msg fail">SORRY TOBLA, TRY AGAIN!!</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<audio id="hitSound" src="hit.mp3"></audio>
+<audio id="missSound" src="miss.mp3"></audio>
+<audio id="bgMusic" src="tabla.mp3" loop></audio>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const bgMusic = document.getElementById('bgMusic');
+
+canvas.width = 1000;
+canvas.height = 600;
+
+const playerImg = new Image(); playerImg.src = 'rifat_cir.png';
+const targetImg = new Image(); targetImg.src = 'atik_cir.png';
+
+let projectile = { x: 180, y: 430, r: 35, vx: 0, vy: 0, launched: false, angle: 0 };
+let origin = { x: 180, y: 430 };
+let target = { x: 850, y: 150, r: 40, speed: 2.5 };
+let isDragging = false;
+let isGameOver = false;
+let clouds = [{x: 100, y: 80}, {x: 450, y: 50}, {x: 800, y: 100}];
+
+function drawBackground() {
+    ctx.fillStyle = "#FFD700";
+    ctx.shadowBlur = 40; ctx.shadowColor = "yellow";
+    ctx.beginPath(); ctx.arc(100, 80, 40, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    clouds.forEach(c => {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 25, 0, Math.PI * 2);
+        ctx.arc(c.x + 30, c.y - 10, 35, 0, Math.PI * 2);
+        ctx.arc(c.x + 65, c.y, 25, 0, Math.PI * 2);
+        ctx.fill();
+        if(!isGameOver) c.x += 0.2; 
+        if(c.x > canvas.width) c.x = -100;
+    });
+
+    ctx.fillStyle = "#27ae60"; 
+    ctx.fillRect(0, 520, canvas.width, 80);
+    ctx.fillStyle = "#1e8449";
+    for(let i=0; i<canvas.width; i+=25) {
+        ctx.beginPath();
+        ctx.moveTo(i, 520); ctx.lineTo(i+12, 502); ctx.lineTo(i+25, 520);
+        ctx.fill();
+    }
+}
+
+function drawSlingshot(px, py) {
+    ctx.strokeStyle = "#5D4037"; ctx.lineWidth = 10; ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(origin.x, 520); ctx.lineTo(origin.x, 430);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(origin.x, 430); ctx.lineTo(origin.x - 20, 400);
+    ctx.moveTo(origin.x, 430); ctx.lineTo(origin.x + 20, 400);
+    ctx.stroke();
+
+    if (!projectile.launched && !isGameOver) {
+        ctx.strokeStyle = "#3E2723"; ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(origin.x - 15, 405); ctx.lineTo(px, py);
+        ctx.moveTo(origin.x + 15, 405); ctx.lineTo(px, py);
+        ctx.stroke();
+    }
+}
+
+function resetProjectile() {
+    projectile.launched = false;
+    projectile.x = origin.x; projectile.y = origin.y;
+    projectile.vx = 0; projectile.vy = 0; projectile.angle = 0;
+}
+
+function restartGame() {
+    isGameOver = false;
+    document.getElementById('msgSuccess').style.display = 'none';
+    document.getElementById('retryBtn').style.display = 'none';
+    bgMusic.currentTime = 0; 
+    bgMusic.play(); // পুনরায় মিউজিক শুরু
+    resetProjectile();
+    draw();
+}
+
+canvas.onmousedown = (e) => { 
+    // প্রথম ক্লিকের পর মিউজিক স্টার্ট হবে
+    if (bgMusic.paused) {
+        bgMusic.play();
+        bgMusic.volume = 0.4; // ভলিউম কিছুটা কমিয়ে রাখা হয়েছে
+    }
+
+    if(!projectile.launched && !isGameOver) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        if(Math.hypot(mx-projectile.x, my-projectile.y) < 50) isDragging = true;
+    }
+};
+
+window.onmouseup = () => {
+    if(isDragging) {
+        isDragging = false;
+        projectile.launched = true;
+        projectile.vx = (origin.x - projectile.x) * 0.12; 
+        projectile.vy = (origin.y - projectile.y) * 0.12;
+    }
+};
+
+canvas.onmousemove = (e) => {
+    if(isDragging) {
+        const rect = canvas.getBoundingClientRect();
+        projectile.x = e.clientX - rect.left;
+        projectile.y = e.clientY - rect.top;
+    }
+};
+
+function draw() {
+    if (isGameOver) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawBackground();
+    drawSlingshot(projectile.x, projectile.y);
+
+    // Target Movement
+    target.y += target.speed;
+    if(target.y < 80 || target.y > 400) target.speed *= -1;
+    if (targetImg.complete) {
+        ctx.drawImage(targetImg, target.x - target.r, target.y - target.r, target.r*2, target.r*2);
+    }
+
+    // Physics
+    if(projectile.launched) {
+        projectile.x += projectile.vx;
+        projectile.y += projectile.vy;
+        projectile.vy += 0.20; 
+        projectile.angle += 0.1;
+
+        let dist = Math.hypot(projectile.x - target.x, projectile.y - target.y);
+        
+        // HIT CONDITION
+        if(dist < projectile.r + target.r - 5) {
+            document.getElementById('hitSound').play();
+            bgMusic.pause(); // জিতার পর ব্যাকগ্রাউন্ড মিউজিক অফ
+            isGameOver = true;
+            document.getElementById('msgSuccess').style.display = 'block';
+            document.getElementById('retryBtn').style.display = 'inline-block';
+        }
+        
+        // MISS CONDITION
+        if(projectile.x > canvas.width || projectile.y > canvas.height || projectile.x < 0) {
+            document.getElementById('missSound').play();
+            const failMsg = document.getElementById('msgFail');
+            failMsg.style.display = 'block';
+            setTimeout(() => { failMsg.style.display = 'none'; }, 1500);
+            resetProjectile();
+        }
+    }
+
+    // Player Ball
+    ctx.save();
+    ctx.translate(projectile.x, projectile.y);
+    if(projectile.launched) ctx.rotate(projectile.angle);
+    if (playerImg.complete) {
+        ctx.shadowBlur = 10; ctx.shadowColor = "rgba(0,0,0,0.3)";
+        ctx.drawImage(playerImg, -projectile.r, -projectile.r, projectile.r*2, projectile.r*2);
+    }
+    ctx.restore();
+
+    requestAnimationFrame(draw);
+}
+
+playerImg.onload = targetImg.onload = () => { draw(); };
+</script>
+</body>
+</html>
